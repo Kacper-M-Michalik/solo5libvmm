@@ -1,38 +1,18 @@
 #pragma once
 
+#include <stdint.h>
 #include <stddef.h>
-#include <hvt_abi.h>
-
-/*
- * As the design of hvt_do_hypercall, the guest memory has been limited
- * to the area of 0 ~ 4GB. So we can design an address space layout for
- * guest as follow:
- *
- * Guest address space layout
- * ---------------------------------------------------------------
- * | 0 ~ 0xFFFFFFFF for RAM | 0x100000000 ~ 0x13FFFFFFF for MMIO |
- * ---------------------------------------------------------------
- * 0x100000000 MMIO space start
- * 0x0FFFFFFFF End of RAM space
- * 0x100000    loaded elf file (linker script dictates location)
- *   ...       unused ram
- * 0x010000    hvt_boot_info starts
- * 0x007000    PTE
- * 0x006000    PMD3
- * 0x005000    PMD2
- * 0x004000    PMD1
- * 0x003000    PMD0, 4 pages to cover max 4GB RAM
- * 0x002000    PUD
- * 0x001000    PGD, memory start for page table
- * 0x000000    unused ram
- */
 
 #define __AC(X,Y)               (X##Y)
 #define _AC(X,Y)                __AC(X,Y)
 #define _AT(T,X)                ((T)(X))
 #define _BITUL(x)               (_AC(1,UL) << (x))
 #define _BITULL(x)              (_AC(1,ULL) << (x))
+#define ATTRINDX(t)     (_AC(t, UL) << 2)
+#define GENMASK32(h, l) (((~0U) << (l)) & (~0U >> (31 - (h))))
+#define GENMASK64(h, l) (((~0UL) << (l)) & (~0UL >> (63 - (h))))
 
+// HVT DEFS
 #define AARCH64_PGD_PGT_BASE     _AC(0x1000, UL)
 #define AARCH64_PGD_PGT_SIZE     _AC(0x1000, UL)
 #define AARCH64_PUD_PGT_BASE     _AC(0x2000, UL)
@@ -42,31 +22,22 @@
 #define AARCH64_PTE_PGT_BASE     _AC(0x7000, UL)
 #define AARCH64_PTE_PGT_SIZE     _AC(0x1000, UL)
 #define AARCH64_BOOT_INFO        _AC(0x10000, UL)
-#define AARCH64_GUEST_MIN_BASE   _AC(HVT_GUEST_MIN_BASE, UL)
+#define AARCH64_GUEST_MIN_BASE   _AC(0x100000, UL)
 #define AARCH64_MMIO_BASE        _AC(0x100000000, UL)
 #define AARCH64_MMIO_SZ          _AC(0x40000000, UL)
 #define AARCH64_GUEST_BLOCK_SIZE _AC(0x200000, UL)
 #define AARCH64_PGT_MAP_START	 AARCH64_BOOT_INFO
 
-#define GENMASK32(h, l) (((~0U) << (l)) & (~0U >> (31 - (h))))
-#define GENMASK64(h, l) (((~0UL) << (l)) & (~0UL >> (63 - (h))))
-
-/* Definitions of Page tables */
+/*
+ * Hardware page table definitions.
+ */
 #define PAGE_SHIFT  12
 #define PAGE_SIZE   (1 << (PAGE_SHIFT))
 
-/*
- * Hardware page table definitions.
- *
- * Descriptor type for (PGD, PUD and PMD).
- */
 #define PGT_DESC_TYPE_TABLE (_AC(3, UL) << 0)
 #define PGT_DESC_TYPE_SECT  (_AC(1, UL) << 0)
 #define PGT_DESC_TYPE_PAGE  (_AC(3, UL) << 0)
 
-/*
- * Bit definition for section type descriptor
- */
 #define SECT_VALID      (_AC(1, UL) << 0)
 #define SECT_USER       (_AC(1, UL) << 6)     /* AP[1] */
 #define SECT_RDONLY     (_AC(1, UL) << 7)     /* AP[2] */
@@ -77,12 +48,6 @@
 #define SECT_PXN        (_AC(1, UL) << 53)
 #define SECT_UXN        (_AC(1, UL) << 54)
 
-/*
- * AttrIndx[2:0] encoding (mapping attributes defined in the MAIR* registers).
- */
-#define ATTRINDX(t)     (_AC(t, UL) << 2)
-
-/* Memory types available. */
 #define MT_DEVICE_nGnRnE    0
 #define MT_DEVICE_nGnRE     1
 #define MT_DEVICE_GRE       2
@@ -121,8 +86,6 @@
 #define PMD_SIZE	(_AC(1, UL) << PMD_SHIFT)
 #define PMD_MASK	(~(PMD_SIZE-1))
 
-#define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
-
 /* AArch64 SPSR bits */
 #define PSR_F_BIT	0x00000040
 #define PSR_I_BIT	0x00000080
@@ -130,13 +93,8 @@
 #define PSR_D_BIT	0x00000200
 #define PSR_MODE_EL1h	0x00000005
 
-/*
- * Default PSTATE flags:
- * Mask Debug, Abort, IRQ and FIQ. Switch to EL1h mode
- */
 #define AARCH64_PSTATE_INIT (PSR_D_BIT | PSR_A_BIT | PSR_I_BIT | PSR_F_BIT | PSR_MODE_EL1h)
 
-/* Architectural Feature Access Control Register EL1 */
 #define _FPEN_NOTRAP        0x3
 #define _FPEN_SHIFT         20
 #define _FPEN_MASK          GENMASK32(21, 20)
@@ -148,9 +106,6 @@
         MAIR(0x0C, MT_DEVICE_GRE) | MAIR(0x44, MT_NORMAL_NC) | \
         MAIR(0xFF, MT_NORMAL) | MAIR(0xBB, MT_NORMAL_WT)
 
-/*
- * TCR flags.
- */
 #define TCR_T0SZ_OFFSET     0
 #define TCR_T1SZ_OFFSET     16
 #define TCR_T0SZ(x)         ((_AC(64, UL) - (x)) << TCR_T0SZ_OFFSET)
@@ -187,10 +142,6 @@
 #define TCR_TG_FLAGS        TCR_TG0_4K | TCR_TG1_4K
 #define TCR_CACHE_FLAGS     TCR_IRGN_WBWA | TCR_ORGN_WBWA
 
-/*
- * We will do 1:1 VA to PA Mapping, so we define the same address size
- * for VA and PA. 1TB size for Virtual and Physical Address Space.
- */
 #define VA_BITS     40
 #define VA_SIZE     (_AC(1, UL) << VA_BITS)
 #define PA_SIZE     (_AC(1, UL) << VA_BITS)
@@ -203,5 +154,12 @@
 #define _SCTLR_C            _BITUL(2)
 #define _SCTLR_I            _BITUL(12)
 
-void vcpu_reset(size_t vcpu_id);
-void vcpu_print_regs(size_t vcpu_id);
+uint64_t aarch64_get_counter_frequency(void);
+
+void setup_memory_mapping(uint8_t* mem, uint64_t mem_size);
+void setup_system_registers(size_t vcpu_id, uint64_t sp);
+void setup_tcb_registers(size_t vcpu_id, uint64_t p_entry, uint64_t boot_info_addr);
+
+void vcpu_print_tcb_regs(size_t vcpu_id);
+void vcpu_print_sys_regs(size_t vcpu_id);
+void vcpu_reset_regs(size_t vcpu_id);

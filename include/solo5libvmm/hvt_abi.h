@@ -1,68 +1,13 @@
+#pragma once
+
 #include <stddef.h>
 #include <stdint.h>
-#include "elf_abi.h"
 
-/*
- * ABI version. This must be incremented before cutting a release of Solo5 if
- * any material changes are made to the interfaces or data structures defined
- * in this file.
- */
+#define HVT_GUEST_PTR(T) uint64_t
 
-#define HVT_ABI_VERSION 3
-
-/*
- * Lowest virtual address at which guests can be loaded.
- */
-#define HVT_GUEST_MIN_BASE 0x100000
-
-
-/*
- * MMIO base address used to dispatch hypercalls.
- * Currently, we have limited the max guest memory size to 4GB, to guarantee
- * the 32-bit pointer used for hypercall is enough.
- *
- * MMIO start from 4GB, this value can be changed by AARCH64_MMIO_BASE.
- */
 #define HVT_HYPERCALL_MMIO_BASE    (0x100000000UL)
-
-/*
- * On aarch64, the MMIO address must be 64-bit aligned, because we configured
- * the memory attributes of MMIO space to MT_DEVICE_nGnRnE, which is not allow
- * an unaligned access. We must access this area in 64-bit.
- *
- * So the real hypercall ID will be calculated as:
- *          HVT_HYPERCALL_MMIO_BASE + (ID << 3).
- */
 #define HVT_HYPERCALL_ADDRESS(x)   (HVT_HYPERCALL_MMIO_BASE + ((x) << 3))
 #define HVT_HYPERCALL_NR(x)        (((x) - HVT_HYPERCALL_MMIO_BASE) >> 3)
-
-#    ifndef HVT_HOST
-/*
- * In order to keep consistency with x86_64, we limit this hypercall only
- * to support sending 32-bit pointers; raise an assertion if a bigger
- * pointer is used.
- *
- * On aarch64 the compiler-only memory barrier ("memory" clobber) is
- * sufficient across the hypercall boundary.
- */
-static inline void hvt_do_hypercall(int n, volatile void *arg)
-{
-#    ifdef assert
-    assert(((uint64_t)arg <= UINT32_MAX));
-#    endif
-    __asm__ __volatile__("str %w0, [%1]"
-            :
-            : "rZ" ((uint32_t)((uint64_t)arg)),
-                "r" ((uint64_t)HVT_HYPERCALL_ADDRESS(n))
-            : "memory");
-}
-
-
-/*
-* Non-dereferencable tender-side type representing a guest physical address.
-*/
-typedef uint64_t hvt_gpa_t;
-#define HVT_GUEST_PTR(T) hvt_gpa_t
 
 /*
  * Maximum size of guest command line, including the string terminator.
@@ -77,15 +22,16 @@ struct hvt_boot_info {
     uint64_t mem_size;                  /* Memory size in bytes */
     uint64_t kernel_end;                /* Address of end of kernel */
     uint64_t cpu_cycle_freq;            /* CPU cycle counter frequency, Hz */
-    HVT_GUEST_PTR(const char *) cmdline;/* Address of command line (C string) */
-    HVT_GUEST_PTR(const void *) mft;    /* Address of application manifest */
+    HVT_GUEST_PTR(char*) cmdline;/* Address of command line (C string) */
+    HVT_GUEST_PTR(void*) mft;    /* Address of application manifest */
 };
 
 /*
  * Canonical list of hypercalls supported by all tender modules. Actual calls
  * supported at run time depend on module configuration at build time.
  */
-enum hvt_hypercall {
+enum hvt_hypercall 
+{
     /* HVT_HYPERCALL_RESERVED=0 */
     HVT_HYPERCALL_WALLTIME=1,
     HVT_HYPERCALL_PUTS,
@@ -196,8 +142,7 @@ struct hvt_hc_halt {
 };
 
 
-/* Asserts to verify ABI is consitent between compilations */
-
+// Asserts to verify ABI is consistent between compilations 
 _Static_assert(sizeof(struct hvt_boot_info) == 40, "hvt_boot_info - Size mismatch");
 _Static_assert(offsetof(struct hvt_boot_info, mem_size) == 0, "hvt_boot_info - Offset mismatch");
 _Static_assert(offsetof(struct hvt_boot_info, kernel_end) == 8, "hvt_boot_info - Offset mismatch");
@@ -246,5 +191,3 @@ _Static_assert(offsetof(struct hvt_hc_poll, ret) == 16, "hvt_hc_poll - Offset mi
 _Static_assert(sizeof(struct hvt_hc_halt) == 16, "hvt_hc_halt - Size mismatch");
 _Static_assert(offsetof(struct hvt_hc_halt, cookie) == 0, "hvt_hc_halt - Offset mismatch");
 _Static_assert(offsetof(struct hvt_hc_halt, exit_status) == 8, "hvt_hc_halt - Offset mismatch");
-
-#endif /* HVT_ABI_H */
