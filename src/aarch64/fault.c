@@ -100,6 +100,7 @@ static seL4_Word id_to_reg_val(seL4_Word reg_id, seL4_UserContext* regs)
         default:
             LOG_VMM("Failed to decode register id, attempted to access invalid register index 0x%lx\n", reg_id);
             assert(0);
+            return UINT64_MAX; // To get rid of compiler warning
     }
 }
 

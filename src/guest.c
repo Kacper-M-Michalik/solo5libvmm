@@ -71,7 +71,12 @@ bool guest_setup(size_t vcpu_id, uint8_t* kernel, size_t kernel_size, uint8_t* m
         size_t new_mem_size = (mem_size / MEM_SIZE_ALIGN) * MEM_SIZE_ALIGN;
         LOG_VMM("mem_size truncated DOWN to %ld byte alignment (old=%ld new=%ld)\n", MEM_SIZE_ALIGN, mem_size, new_mem_size);
         mem_size = new_mem_size;
-    }  
+    }   
+    if (mem_size == 0)
+    {
+        LOG_VMM("mem_size too small (required=%ld mem_size=%ld)", MEM_SIZE_ALIGN, mem_size);
+        return false;
+    }
 
     //TODO: load abi note + do note check
 
@@ -95,9 +100,9 @@ bool guest_setup(size_t vcpu_id, uint8_t* kernel, size_t kernel_size, uint8_t* m
     struct hvt_boot_info* info = (struct hvt_boot_info*)((uint64_t)mem + BOOT_INFO_ADDR);
     assert(((uint64_t)info % _Alignof(struct hvt_boot_info)) == 0);  
 
-    info->mem_size = mem_size; //Do we subtract p_end?
+    info->mem_size = mem_size;
     info->cpu_cycle_freq = aarch64_get_counter_frequency();
-    info->kernel_end = p_end; //Do we have to increment p_end by 1 instruction?
+    info->kernel_end = p_end;
     
     uint64_t arg_ptr = (uint64_t)info + sizeof(struct hvt_boot_info);
     memcpy((void*)arg_ptr, cmdline, cmdline_len);
