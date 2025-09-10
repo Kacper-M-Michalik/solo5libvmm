@@ -7,4 +7,4 @@
 
 char* fault_to_string(seL4_Word fault_label);
 
-bool fault_handle(size_t vcpu_id, microkit_msginfo msginfo);
+bool fault_handle(size_t vcpu_id, microkit_msginfo msginfo, uint8_t* mem);

@@ -187,6 +187,8 @@ bool elf_load_note(uint8_t* elf_ptr, size_t elf_size, uint32_t note_type, size_t
 // Entry and end given in guest space (aka without mem offset)
 bool elf_load(uint8_t* elf_ptr, size_t elf_size, uint8_t* mem, size_t mem_size, uint64_t p_min_loadaddr, uint64_t* p_entry, uint64_t* p_end)
 {
+    LOG_VMM("Entered elf_load\n");
+
     Elf64_Phdr phdr;
     Elf64_Ehdr ehdr;
     Elf64_Addr e_entry;           
@@ -195,6 +197,8 @@ bool elf_load(uint8_t* elf_ptr, size_t elf_size, uint8_t* mem, size_t mem_size, 
     // Copy into structs to guarantee struct required alignment
     memcpy(&ehdr, elf_ptr, sizeof(Elf64_Ehdr));
     if (!ehdr_is_valid(&ehdr)) return false;
+
+    LOG_VMM("Validated ehdr\n");
 
     // e_entry must be non-zero and within range of our memory
     if (ehdr.e_entry < p_min_loadaddr || ehdr.e_entry >= mem_size) return false;
@@ -212,6 +216,8 @@ bool elf_load(uint8_t* elf_ptr, size_t elf_size, uint8_t* mem, size_t mem_size, 
     {
         memcpy(&phdr, next_phdr_address, sizeof(Elf64_Phdr));
         next_phdr_address += sizeof(Elf64_Phdr);
+        LOG_VMM("Read phdr %ld\n", ph_i);
+
         //TODO: should add check that we stay under elf_size
 
         Elf64_Addr p_vaddr = phdr.p_vaddr;
@@ -263,18 +269,21 @@ bool elf_load(uint8_t* elf_ptr, size_t elf_size, uint8_t* mem, size_t mem_size, 
             assert((mem + e_end) >= (mem + p_min_loadaddr));
         }
 
+        LOG_VMM("phdr valid - attempting load\n");
+
         /*
          * Load the segment (p_vaddr ... p_vaddr + p_filesz) into host memory space at
          * host_vaddr (where mem is where we mapped guest memory in host space) and ensure 
          * any BSS (p_memsz - p_filesz) is initialised to zero
          */
         uint8_t* host_vaddr = mem + p_vaddr;
-        // Double check result for host (caller) address space overflow
-        assert(host_vaddr >= (mem + p_min_loadaddr));
-
         uint8_t* segment_data = elf_ptr + phdr.p_offset;
+        // Double check result for host (caller) address space overflow
+        assert(host_vaddr >= (mem + p_min_loadaddr));               
         memcpy(host_vaddr, segment_data, p_filesz);
         memset(host_vaddr + p_filesz, 0, p_memsz - p_filesz);
+
+        LOG_VMM("phdr loaded\n");
 
         /* The Microkit system description will ensure that VMM can R/W guest memory but not execute, as for
          * guest side protection, I don't know if its currently possible to change (EPT2) memory permissions after bootup,

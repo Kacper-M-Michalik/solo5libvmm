@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <stdatomic.h>
 #include <microkit.h>
 #include <solo5libvmm/aarch64/vcpu.h>
 #include <solo5libvmm/util.h>
@@ -111,7 +112,7 @@ static inline void advance_vcpu(size_t vcpu_id, seL4_UserContext* regs)
     assert(err == seL4_NoError);
 } 
 
-static seL4_Bool fault_handle_vm_exception(size_t vcpu_id)
+static seL4_Bool fault_handle_vm_exception(size_t vcpu_id, uint8_t* mem)
 {
     uint64_t addr = (uint64_t)microkit_mr_get(seL4_VMFault_Addr);
     uint64_t fsr = (uint64_t)microkit_mr_get(seL4_VMFault_FSR);
@@ -127,79 +128,70 @@ static seL4_Bool fault_handle_vm_exception(size_t vcpu_id)
     //LOG_VMM("fsr: %ld\n", fsr);
     //LOG_VMM("ip: %ld\n", ip);
     //LOG_VMM("is_prefetch: %ld\n", is_prefetch);
-    //LOG_VMM("hypercall number: %ld\n", HVT_HYPERCALL_NR(addr));#
+    //LOG_VMM("hypercall number: %ld\n", HVT_HYPERCALL_NR(addr));
 
-    // add checks        
-    uint8_t* mem = (uint8_t*)1073741824;
-    uint8_t isv = (fsr >> 25) & 1;
-    uint8_t il = (fsr >> 26) & 1;
+    // Add checks
+    uint64_t isv = (fsr >> 24) & 1;
+    uint64_t il = (fsr >> 25) & 1;
     uint64_t src_reg = (fsr >> 16) & 31;
     uint64_t reg_data = (uint64_t)id_to_reg_val(src_reg, &regs);
     enum hvt_hypercall hc = HVT_HYPERCALL_NR(addr);
+    atomic_thread_fence(memory_order_seq_cst);
 
-    if (hc == HVT_HYPERCALL_PUTS)
-    {      
-        struct hvt_hc_puts puts;        
-        memcpy(&puts, mem + reg_data, sizeof(struct hvt_hc_puts));
+    if (isv && il && hc >= 0 && hc <= HVT_HYPERCALL_MAX)
+    {
+        if (hc == HVT_HYPERCALL_PUTS)
+        {      
+            struct hvt_hc_puts* puts = (struct hvt_hc_puts*)(mem + reg_data);     
+            for (uint64_t i = 0; i < puts->len; i++)
+            {
+                uint64_t data = *(mem + puts->data + i);
+                PRINT_VMM("%c", (char)data);
+            }
 
-        //LOG_VMM("valid isv: %ld\n", isv);
-        //LOG_VMM("valid il: %ld\n", il);
-        //LOG_VMM("src reg: %ld\n", src_reg);
-        //LOG_VMM("reg value: %ld\n", reg_data);        
-        //LOG_VMM("data ptr: %ld\n", puts.data);
-        //LOG_VMM("data len: %ld\n", puts.len);
-        for (uint64_t i = 0; i < puts.len; i++)
-        {
-            uint64_t data = *(mem + puts.data + i);
-            PRINT_VMM("%c", (char)data);
-            //PRINT_VMM("%c - %ld, ", (char)data, data);
+            advance_vcpu(vcpu_id, &regs);        
+            return seL4_True;
+        } 
+        if (hc == HVT_HYPERCALL_WALLTIME)
+        {        
+            struct hvt_hc_walltime* walltime = (struct hvt_hc_walltime*)(mem + reg_data);
+            walltime->nsecs = 0;
+
+            advance_vcpu(vcpu_id, &regs);
+            return seL4_True;
         }
-        //LOG_VMM("\n");
+        if (hc == HVT_HYPERCALL_POLL)
+        {
+            struct hvt_hc_poll* poll = (struct hvt_hc_poll*)(mem + reg_data);
+            poll->ready_set = 0;
+            poll->ret = 0;
 
-        advance_vcpu(vcpu_id, &regs);
-        
-        return seL4_True;
-    } 
-    
-    if (hc == HVT_HYPERCALL_WALLTIME)
-    {        
-        struct hvt_hc_walltime* walltime = (struct hvt_hc_walltime*)(mem + reg_data);
-        walltime->nsecs = 0;
+            //LOG_VMM("Poll_cpy nsecs: %ld\n", pollcpy.timeout_nsecs);
+            //LOG_VMM("Poll nsecs: %ld\n", poll->timeout_nsecs);        
 
-        advance_vcpu(vcpu_id, &regs);
+            advance_vcpu(vcpu_id, &regs);
+            return seL4_True;
+        }
+        if (hc == HVT_HYPERCALL_HALT)
+        {
+            struct hvt_hc_halt* poll = (struct hvt_hc_halt*)(mem + reg_data);
+            LOG_VMM("Guest exited with code: %ld\n", poll->exit_status);
 
-        return seL4_True;
-    }
-    
-    if (hc == HVT_HYPERCALL_POLL)
-    {
-        struct hvt_hc_poll* poll = (struct hvt_hc_poll*)(mem + reg_data);
-        poll->ready_set = 0;
-        poll->ret = 0;
-
-        //struct hvt_hc_poll pollcpy;
-        //memcpy(&pollcpy, mem + reg_data, sizeof(struct hvt_hc_puts));        
-        //LOG_VMM("Poll_cpy nsecs: %ld\n", pollcpy.timeout_nsecs);
-        //LOG_VMM("Poll nsecs: %ld\n", poll->timeout_nsecs);        
-
-        advance_vcpu(vcpu_id, &regs);
-
-        return seL4_True;
-    }
-    
-    if (hc == HVT_HYPERCALL_HALT)
-    {
-        struct hvt_hc_halt* poll = (struct hvt_hc_halt*)(mem + reg_data);
-
-        LOG_VMM("Guest exited with code: %ld\n", poll->exit_status);
-
-        microkit_vcpu_stop(vcpu_id);
-
-        return seL4_True;
+            microkit_vcpu_stop(vcpu_id);
+            return seL4_True;
+        }
     }
 
-    LOG_VMM("Hypercall number: %ld\n", (uint64_t)hc);
     LOG_VMM("Unexpected memory fault on address: 0x%lx, FSR: 0x%lx, IP: 0x%lx, is_prefetch: %s\n", addr, fsr, ip, is_prefetch ? "true" : "false");
+    LOG_VMM("instr: %lx %lx %lx %lx", *(mem + ip), *(mem + ip+1), *(mem + ip+2), *(mem + ip+3));    
+    LOG_VMM("fsr: %ld\n", fsr);
+    LOG_VMM("valid isv: %ld\n", isv);
+    LOG_VMM("valid il: %ld\n", il);
+    LOG_VMM("src reg: %ld\n", src_reg);
+    LOG_VMM("reg value: %ld\n", reg_data);  
+    LOG_VMM("mem: %ld\n", mem);      
+    LOG_VMM("Hypercall number: %ld\n", (uint64_t)hc);
+    
     return seL4_False;
 }
 
@@ -216,15 +208,15 @@ static seL4_Bool fault_handle_user_exception(size_t vcpu_id)
     return seL4_True;
 }
 
-seL4_Bool fault_handle(size_t vcpu_id, microkit_msginfo msginfo)
+seL4_Bool fault_handle(size_t vcpu_id, microkit_msginfo msginfo, uint8_t* mem)
 {
     seL4_Word label = microkit_msginfo_get_label(msginfo);
     seL4_Bool success = seL4_False;
 
-    switch (label) 
+    switch (label)
     {
         case seL4_Fault_VMFault:
-            success = fault_handle_vm_exception(vcpu_id);
+            success = fault_handle_vm_exception(vcpu_id, mem);
             break;
         case seL4_Fault_UserException:
             success = fault_handle_user_exception(vcpu_id);

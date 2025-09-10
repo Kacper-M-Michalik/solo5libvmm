@@ -69,7 +69,7 @@ void setup_tcb_registers(size_t vcpu_id, uint64_t p_entry, uint64_t boot_info_ad
         BASE_VM_TCB_CAP + vcpu_id,
         seL4_False,
         0,
-        4, // Due to ordering of UserContext, need to set 4 fields
+        sizeof(seL4_UserContext)/sizeof(seL4_Word),
         &context
     );
     assert(err == seL4_NoError);

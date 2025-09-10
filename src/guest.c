@@ -46,6 +46,8 @@ void guest_clear(size_t vcpu_id, uint8_t* guest_mem, size_t guest_mem_size)
 
 bool guest_setup(size_t vcpu_id, uint8_t* kernel, size_t kernel_size, uint8_t* mem, size_t mem_size, size_t max_stack_size, char* cmdline, size_t cmdline_len)
 {
+    LOG_VMM("Started guest setup\n");
+
     // Avoiding using defines
     const uint64_t BOOT_INFO_ADDR = AARCH64_BOOT_INFO;
     const uint64_t MIN_TEXT_ADDR = AARCH64_GUEST_MIN_BASE;
@@ -84,6 +86,8 @@ bool guest_setup(size_t vcpu_id, uint8_t* kernel, size_t kernel_size, uint8_t* m
     //struct mft testmft;
     //testmft.version =
 
+    LOG_VMM("guest_setup passed arg checks\n");
+
     //TODO: Add protection propagation
     uint64_t p_entry;
     uint64_t p_end;
@@ -105,7 +109,7 @@ bool guest_setup(size_t vcpu_id, uint8_t* kernel, size_t kernel_size, uint8_t* m
     info->kernel_end = p_end;
     
     uint64_t arg_ptr = (uint64_t)info + sizeof(struct hvt_boot_info);
-    memcpy((void*)arg_ptr, cmdline, cmdline_len);
+    memcpy((uint8_t*)arg_ptr, cmdline, cmdline_len);
     *((char*)(arg_ptr + cmdline_len)) = '\0';
     info->cmdline = arg_ptr - (uint64_t)mem; 
     arg_ptr += cmdline_len + 1;        
