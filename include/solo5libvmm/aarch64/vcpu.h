@@ -8,29 +8,11 @@
 #define _AT(T,X)                ((T)(X))
 #define _BITUL(x)               (_AC(1,UL) << (x))
 #define _BITULL(x)              (_AC(1,ULL) << (x))
-#define ATTRINDX(t)     (_AC(t, UL) << 2)
-#define GENMASK32(h, l) (((~0U) << (l)) & (~0U >> (31 - (h))))
-#define GENMASK64(h, l) (((~0UL) << (l)) & (~0UL >> (63 - (h))))
+#define ATTRINDX(t)             (_AC(t, UL) << 2)
+#define GENMASK32(h, l)         (((~0U) << (l)) & (~0U >> (31 - (h))))
+#define GENMASK64(h, l)         (((~0UL) << (l)) & (~0UL >> (63 - (h))))
 
-// HVT DEFS
-#define AARCH64_PGD_PGT_BASE     _AC(0x1000, UL)
-#define AARCH64_PGD_PGT_SIZE     _AC(0x1000, UL)
-#define AARCH64_PUD_PGT_BASE     _AC(0x2000, UL)
-#define AARCH64_PUD_PGT_SIZE     _AC(0x1000, UL)
-#define AARCH64_PMD_PGT_BASE     _AC(0x3000, UL)
-#define AARCH64_PMD_PGT_SIZE     _AC(0x4000, UL)
-#define AARCH64_PTE_PGT_BASE     _AC(0x7000, UL)
-#define AARCH64_PTE_PGT_SIZE     _AC(0x1000, UL)
-#define AARCH64_BOOT_INFO        _AC(0x10000, UL)
-#define AARCH64_GUEST_MIN_BASE   _AC(0x100000, UL)
-#define AARCH64_MMIO_BASE        _AC(0x100000000, UL)
-#define AARCH64_MMIO_SZ          _AC(0x40000000, UL)
-#define AARCH64_GUEST_BLOCK_SIZE _AC(0x200000, UL)
-#define AARCH64_PGT_MAP_START	 AARCH64_BOOT_INFO
-
-/*
- * Hardware page table definitions.
- */
+// Hardware page table defs
 #define PAGE_SHIFT  12
 #define PAGE_SIZE   (1 << (PAGE_SHIFT))
 
@@ -66,7 +48,7 @@
 #define PROT_PAGE_NORMAL    		(PROT_PAGE_DEFAULT_NORMAL | SECT_PXN | SECT_UXN)
 #define PROT_PAGE_NORMAL_RO    		(PROT_PAGE_DEFAULT_NORMAL | SECT_PXN | SECT_UXN | SECT_RDONLY)
 #define PROT_PAGE_NORMAL_EXEC   	(PROT_PAGE_DEFAULT_NORMAL | SECT_UXN)
-#define PROT_PAGE_NORMAL_EXEC_RO    (PROT_PAGE_DEFAULT_NORMAL | SECT_UXN | SECT_RDONLY)
+#define PROT_PAGE_NORMAL_EXEC_RO        (PROT_PAGE_DEFAULT_NORMAL | SECT_UXN | SECT_RDONLY)
 #define PROT_PAGE_DEVICE_nGnRE  	(PROT_PAGE_DEFAULT_DEVICE | SECT_PXN | SECT_UXN)
 
 /*
@@ -85,26 +67,6 @@
 #define PMD_SHIFT	21
 #define PMD_SIZE	(_AC(1, UL) << PMD_SHIFT)
 #define PMD_MASK	(~(PMD_SIZE-1))
-
-/* AArch64 SPSR bits */
-#define PSR_F_BIT	0x00000040
-#define PSR_I_BIT	0x00000080
-#define PSR_A_BIT	0x00000100
-#define PSR_D_BIT	0x00000200
-#define PSR_MODE_EL1h	0x00000005
-
-#define AARCH64_PSTATE_INIT (PSR_D_BIT | PSR_A_BIT | PSR_I_BIT | PSR_F_BIT | PSR_MODE_EL1h)
-
-#define _FPEN_NOTRAP        0x3
-#define _FPEN_SHIFT         20
-#define _FPEN_MASK          GENMASK32(21, 20)
-
-#define MAIR(attr, mt)      (_AC(attr, UL) << ((mt) * 8))
-
-#define MAIR_EL1_INIT       \
-        MAIR(0x00, MT_DEVICE_nGnRnE) | MAIR(0x04, MT_DEVICE_nGnRE) | \
-        MAIR(0x0C, MT_DEVICE_GRE) | MAIR(0x44, MT_NORMAL_NC) | \
-        MAIR(0xFF, MT_NORMAL) | MAIR(0xBB, MT_NORMAL_WT)
 
 #define TCR_T0SZ_OFFSET     0
 #define TCR_T1SZ_OFFSET     16
@@ -146,13 +108,50 @@
 #define VA_SIZE     (_AC(1, UL) << VA_BITS)
 #define PA_SIZE     (_AC(1, UL) << VA_BITS)
 
+// Aarch64 cpu register defs
 #define TCR_EL1_INIT        \
             TCR_TxSZ(VA_BITS) | TCR_CACHE_FLAGS | TCR_SHARED | \
             TCR_TG_FLAGS | TCR_ASID16 | TCR_TBI0 | TCR_IPS_1TB
 
+#define MAIR(attr, mt)      (_AC(attr, UL) << ((mt) * 8))
+
+#define MAIR_EL1_INIT       \
+        MAIR(0x00, MT_DEVICE_nGnRnE) | MAIR(0x04, MT_DEVICE_nGnRE) | \
+        MAIR(0x0C, MT_DEVICE_GRE) | MAIR(0x44, MT_NORMAL_NC) | \
+        MAIR(0xFF, MT_NORMAL) | MAIR(0xBB, MT_NORMAL_WT)
+
 #define _SCTLR_M            _BITUL(0)
 #define _SCTLR_C            _BITUL(2)
 #define _SCTLR_I            _BITUL(12)
+#define SCTLR_EL1_INIT      (_SCTLR_M | _SCTLR_C | _SCTLR_I)
+
+#define PSR_F_BIT	    0x00000040
+#define PSR_I_BIT	    0x00000080
+#define PSR_A_BIT	    0x00000100
+#define PSR_D_BIT	    0x00000200
+#define PSR_MODE_EL1h	    0x00000005
+#define SPSR_EL1_INIT       (PSR_D_BIT | PSR_A_BIT | PSR_I_BIT | PSR_F_BIT | PSR_MODE_EL1h)
+
+#define CPACR_EL1_INIT      (_AC(0x3, UL) << 20)
+
+
+// HVT defs
+#define AARCH64_PGD_PGT_BASE     _AC(0x1000, UL)
+#define AARCH64_PGD_PGT_SIZE     _AC(0x1000, UL)
+#define AARCH64_PUD_PGT_BASE     _AC(0x2000, UL)
+#define AARCH64_PUD_PGT_SIZE     _AC(0x1000, UL)
+#define AARCH64_PMD_PGT_BASE     _AC(0x3000, UL)
+#define AARCH64_PMD_PGT_SIZE     _AC(0x4000, UL)
+#define AARCH64_PTE_PGT_BASE     _AC(0x7000, UL)
+#define AARCH64_PTE_PGT_SIZE     _AC(0x1000, UL)
+#define AARCH64_BOOT_INFO        _AC(0x10000, UL)
+#define AARCH64_GUEST_MIN_BASE   _AC(0x100000, UL)
+#define AARCH64_MMIO_BASE        _AC(0x100000000, UL)
+#define AARCH64_MMIO_SZ          _AC(0x40000000, UL)
+#define AARCH64_GUEST_BLOCK_SIZE _AC(0x200000, UL)
+#define AARCH64_PGT_MAP_START	 AARCH64_BOOT_INFO
+// move these out of here?
+
 
 uint64_t aarch64_get_counter_frequency(void);
 

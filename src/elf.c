@@ -3,8 +3,9 @@
 #include <stdint.h>
 #include <string.h>
 #include <elf.h>
-#include <solo5libvmm/elf_solo5.h>
+#include <solo5libvmm/elf.h>
 #include <solo5libvmm/util.h>
+#include <solo5libvmm/solo5/elf_abi.h>
 
 #define EM_TARGET EM_AARCH64
 #define EM_PAGE_SIZE 0x1000
@@ -15,27 +16,13 @@
 #define EI_DATA_TARGET ELFDATA2MSB
 #endif
 
-// Solo5-owned ELF notes are identified by an n_name of "Solo5"
-#define SOLO5_NOTE_NAME "Solo5"
-
-// Defines an Elf64_Nhdr with n_name filled in and padded to a 4-byte boundary, i.e. the common part of a Solo5-owned Nhdr
-struct solo5_nhdr {
-    Elf64_Nhdr h;
-    char n_name[(sizeof(SOLO5_NOTE_NAME) + 3) & -4];
-    // Note content ("descriptor" in ELF terms) follows in the file here, possibly with some internal alignment before the first struct member (see below)
-};
-
-_Static_assert((sizeof(struct solo5_nhdr)) == (sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + 8),
-        "struct solo5_nhdr alignment issue");
-
 static bool ehdr_is_valid(const Elf64_Ehdr* hdr)
 {
+    // Validate that this is an ELF64 header we support
     /*
-     * 1. Validate that this is an ELF64 header we support.
-     *
      * Note: e_ident[EI_OSABI] and e_ident[EI_ABIVERSION] are deliberately NOT
      * checked as compilers do not provide a way to override this without
-     * building the entire toolchain from scratch.
+     * building the entire toolchain from scratch
      */
     if (!(hdr->e_ident[EI_MAG0] == ELFMAG0
             && hdr->e_ident[EI_MAG1] == ELFMAG1
@@ -45,23 +32,14 @@ static bool ehdr_is_valid(const Elf64_Ehdr* hdr)
             && hdr->e_ident[EI_DATA] == EI_DATA_TARGET
             && hdr->e_version == EV_CURRENT))
         return false;
-    /*
-     * 2. Validate ELF64 header internal sizes match what we expect, and that
-     * at least one program header entry is present.
-     */
-    if (hdr->e_ehsize != sizeof (Elf64_Ehdr))
-        return false;
-    if (hdr->e_phnum < 1)
-        return false;
-    if (hdr->e_phentsize != sizeof (Elf64_Phdr))
-        return false;
-    /*
-     * 3. Validate that this is an executable for our target architecture.
-     */
-    if (hdr->e_type != ET_EXEC)
-        return false;
-    if (hdr->e_machine != EM_TARGET)
-        return false;
+
+    // Validate ELF64 header internal sizes match what we expect and that at least one program header entry is present
+    if (hdr->e_ehsize != sizeof (Elf64_Ehdr)) return false;
+    if (hdr->e_phnum < 1) return false;
+    if (hdr->e_phentsize != sizeof (Elf64_Phdr)) return false;
+    // Validate that this is an executable for our target architecture
+    if (hdr->e_type != ET_EXEC) return false;
+    if (hdr->e_machine != EM_TARGET) return false;
 
     return true;
 }
@@ -93,22 +71,19 @@ static int align_up(Elf64_Addr addr, Elf64_Xword align, Elf64_Addr* out_result)
         return 1;
 }
 
-bool elf_load_note(uint8_t* elf_ptr, size_t elf_size, uint32_t note_type, size_t note_align, uint8_t* out_note_buf, size_t out_note_buf_size, size_t* acc_note_size)
+bool elf_load_note(uint8_t* elf_ptr, size_t elf_size, uint32_t note_type, size_t note_align, size_t max_note_size, uint8_t* out_note_buf, size_t* acc_note_size)
 {
+    LOG_VMM("Loading note (type=%ld)\n", note_type);
+
     Elf64_Phdr phdr;
     Elf64_Ehdr ehdr;
-    uint8_t* note_data = NULL;
     size_t note_offset, note_size, note_pad;
 
     memcpy(&ehdr, elf_ptr, sizeof(Elf64_Ehdr));
     if (!ehdr_is_valid(&ehdr)) return false;
+    LOG_VMM("Validated ehdr\n");
 
-    size_t ph_size = ehdr.e_phnum * ehdr.e_phentsize;
-    
-    /*
-     * Find the phdr containing the Solo5 NOTE of type note_type, and sanity
-     * check its headers.
-     */
+    // Find the phdr containing the Solo5 NOTE of type note_type and check its headers
     bool note_found = false;
     uint8_t* next_phdr_address = elf_ptr + ehdr.e_phoff;
     struct solo5_nhdr nhdr;
@@ -120,39 +95,28 @@ bool elf_load_note(uint8_t* elf_ptr, size_t elf_size, uint32_t note_type, size_t
         //TODO: should add check that we stay under elf_size
 
         if (phdr.p_type != PT_NOTE) continue;
-        /*
-        * p_filesz is less than minimum possible size of a NOTE header,
-        * reject the executable.
-        */
+
+        // p_filesz is less than minimum possible size of a NOTE header
         if (phdr.p_filesz < sizeof (Elf64_Nhdr)) return false;        
-        /*
-        * p_filesz is less than minimum possible size of a Solo5 NOTE
-        * header, ignore the note.
-        */
+
+        // p_filesz is less than minimum possible size of a Solo5 NOTE header
         if (phdr.p_filesz < sizeof(struct solo5_nhdr)) continue;
         
         uint8_t* segment_data = elf_ptr + phdr.p_offset; 
         memcpy(&nhdr, segment_data, sizeof(struct solo5_nhdr));
+        LOG_VMM("Found nhdr\n");
 
-        /*
-        * Not a Solo5-owned NOTE or invalid n_namesz, skip.
-        */
+        // Not a Solo5-owned NOTE or invalid n_namesz
         if (nhdr.h.n_namesz != sizeof(SOLO5_NOTE_NAME)) continue;
-        /*
-        * Not a Solo5-owned NOTE, skip.
-        */
+
+        // Not a Solo5-owned NOTE
         if (strncmp(nhdr.n_name, SOLO5_NOTE_NAME, sizeof(SOLO5_NOTE_NAME)) != 0) continue;
-        /*
-        * Not the Solo5 NOTE of note_type we are looking for, skip.
-        */
+
+        // Not the Solo5 NOTE of note_type we are looking for
         if (nhdr.h.n_type != note_type) continue;
 
-        /*
-         * Check note descriptor (content) size is within limits, and
-         * cross-check with p_filesz.
-         */
-        //TODO: Should we add back max_note_size, or do we just use buf size as max?
-        if (nhdr.h.n_descsz < 1 || nhdr.h.n_descsz > out_note_buf_size) return false;
+        // Check note descriptor (content) size is within limits and cross-check with p_filesz
+        if (nhdr.h.n_descsz < 1 || nhdr.h.n_descsz > max_note_size) return false;
         if (phdr.p_filesz < sizeof(struct solo5_nhdr) + nhdr.h.n_descsz) return false;
 
         note_found = true;
@@ -161,15 +125,9 @@ bool elf_load_note(uint8_t* elf_ptr, size_t elf_size, uint32_t note_type, size_t
     
     if (!note_found) return false;
 
-    /*
-     * At this point we have verified that the NOTE at phdr[ph_i] is the Solo5
-     * NOTE with the requested note_type and its file sizes are sane.
-     *
-     * Adjust for alignment requested in (note_align) and read the note
-     * descriptor (content) following the header into dynamically allocated
-     * memory.
-     */
-    assert(note_align > 0 && (note_align & (note_align - 1)) == 0); //check note align is power of two
+    // At this point we have verified that the NOTE at phdr[ph_i] is the Solo5 NOTE with the requested note_type and its file size is sane
+    // Adjust for alignment requested in (note_align) and read the note descriptor (content) following the header
+    assert(note_align > 0 && (note_align & (note_align - 1)) == 0);
     note_offset = (sizeof(struct solo5_nhdr) + (note_align - 1)) & -note_align;
     assert(note_offset >= sizeof(struct solo5_nhdr));
     note_pad = note_offset - sizeof(struct solo5_nhdr);
@@ -177,7 +135,7 @@ bool elf_load_note(uint8_t* elf_ptr, size_t elf_size, uint32_t note_type, size_t
     assert(note_size != 0 && note_size <= nhdr.h.n_descsz);    
 
     uint8_t* note_data_ptr = elf_ptr + phdr.p_offset + note_offset;
-    size_t read_size = out_note_buf_size < note_size ? out_note_buf_size : note_size;
+    size_t read_size = max_note_size < note_size ? max_note_size : note_size;
     memcpy(out_note_buf, note_data_ptr, read_size);
     *acc_note_size = note_size; 
 
@@ -187,7 +145,7 @@ bool elf_load_note(uint8_t* elf_ptr, size_t elf_size, uint32_t note_type, size_t
 // Entry and end given in guest space (aka without mem offset)
 bool elf_load(uint8_t* elf_ptr, size_t elf_size, uint8_t* mem, size_t mem_size, uint64_t p_min_loadaddr, uint64_t* p_entry, uint64_t* p_end)
 {
-    LOG_VMM("Entered elf_load\n");
+    LOG_VMM("Loading elf\n");
 
     Elf64_Phdr phdr;
     Elf64_Ehdr ehdr;
@@ -197,21 +155,17 @@ bool elf_load(uint8_t* elf_ptr, size_t elf_size, uint8_t* mem, size_t mem_size, 
     // Copy into structs to guarantee struct required alignment
     memcpy(&ehdr, elf_ptr, sizeof(Elf64_Ehdr));
     if (!ehdr_is_valid(&ehdr)) return false;
-
     LOG_VMM("Validated ehdr\n");
 
     // e_entry must be non-zero and within range of our memory
     if (ehdr.e_entry < p_min_loadaddr || ehdr.e_entry >= mem_size) return false;
-
+   
     e_entry = ehdr.e_entry;
-
-    size_t ph_size = ehdr.e_phnum * ehdr.e_phentsize;    
+    e_end = 0;
 
     // Load all program segments with the PT_LOAD directive
     uint8_t* next_phdr_address = elf_ptr + ehdr.e_phoff;
-    e_end = 0;
     Elf64_Addr plast_vaddr = 0;
-
     for (Elf64_Half ph_i = 0; ph_i < ehdr.e_phnum; ph_i++) 
     {
         memcpy(&phdr, next_phdr_address, sizeof(Elf64_Phdr));
@@ -232,11 +186,7 @@ bool elf_load(uint8_t* elf_ptr, size_t elf_size, uint8_t* mem, size_t mem_size, 
         // Verify segment is at or above minimum text address
         if (p_vaddr < p_min_loadaddr) return false;
 
-        /*
-         * The ELF specification mandates that program headers are sorted on
-         * p_vaddr in ascending order. Enforce this, at the same time avoiding
-         * any surprises later
-         */
+        // ELF specification mandates that program headers are sorted on p_vaddr in ascending order
         if (p_vaddr < plast_vaddr) return false;
         else plast_vaddr = p_vaddr;
 
@@ -244,10 +194,7 @@ bool elf_load(uint8_t* elf_ptr, size_t elf_size, uint8_t* mem, size_t mem_size, 
         if (align_down(p_vaddr, p_align, &p_vaddr_start)) return false;
         if (p_vaddr_start < p_min_loadaddr) return false;
 
-        /*
-         * Disallow overlapping segments. This may be overkill, but in practice
-         * the Solo5 toolchains do not produce such executables
-         */
+        // Disallow overlapping segments
         if (p_vaddr_start < e_end) return false;
 
         // Verify p_vaddr + p_filesz is within range.
@@ -285,12 +232,13 @@ bool elf_load(uint8_t* elf_ptr, size_t elf_size, uint8_t* mem, size_t mem_size, 
 
         LOG_VMM("phdr loaded\n");
 
-        /* The Microkit system description will ensure that VMM can R/W guest memory but not execute, as for
-         * guest side protection, I don't know if its currently possible to change (EPT2) memory permissions after bootup,
-         * all of guest memory is RWX from guest perspective.
-         * In the future we could modify the VCpu initialisation, which currently creates guest owned translation tables (EPT1)
-         * to mark lower addresses as read-only (per HVT spec), to also propagate elf permissions.
-         */
+        // Microkit sets up EL2 page tables based on system description - where we usually mark regions so that the VMM can R/W guest memory 
+        // but not execute it, and as for guest side, we have to give all its memory the same persmissions, so we set its entire memory to RWX
+        // it's not currently possible to change the EL2 memory permissions after Microkit bootup, which means we can't safely propagate the elf
+        // requested page permissions, we can use the guest EL1 page table as a stop gap, propagating elf permissions there, this will prevent any accidental
+        // memory misaccesses, but if we have a truly malicious program, it could overwrite the guests own EL1 pages and then just have normal access to all memory.
+        // TODO: Make Microkit issue to see if we alter EL2 memory permissions in future
+
         /*
          * Memory protection flags should be applied to the aligned address
          * range (p_vaddr_start .. p_vaddr_end). Before we apply them, also

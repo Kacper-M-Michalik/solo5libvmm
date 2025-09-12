@@ -3,8 +3,8 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <microkit.h>
-#include <solo5libvmm/aarch64/vcpu.h>
 #include <solo5libvmm/util.h>
+#include <solo5libvmm/aarch64/vcpu.h>
 
 uint64_t aarch64_get_counter_frequency(void)
 {
@@ -19,10 +19,8 @@ void setup_system_registers(size_t vcpu_id, uint64_t sp)
 {
     // Enable Float and SIMD
     LOG_VMM("Enabling the floating-point and Advanced SIMD registers\n");
-    //data &= ~(_FPEN_MASK); // HVT KVM reads first then does this, why? By default is 0
-    seL4_Word data = (_FPEN_NOTRAP << _FPEN_SHIFT);    
-    LOG_VMM("Should be: %x\n", data);
-    microkit_vcpu_arm_write_reg(vcpu_id, seL4_VCPUReg_CPACR, data);
+    LOG_VMM("Should be: %x\n", CPACR_EL1_INIT);
+    microkit_vcpu_arm_write_reg(vcpu_id, seL4_VCPUReg_CPACR, CPACR_EL1_INIT);
 
 
     // Enable and setup MMU
@@ -41,14 +39,14 @@ void setup_system_registers(size_t vcpu_id, uint64_t sp)
 
     // Enable MMU and I/D Cache for EL1
     LOG_VMM("Setting up System Control Register EL1\n");
-    LOG_VMM("Should be: %x\n", (_SCTLR_M | _SCTLR_C | _SCTLR_I));
-    microkit_vcpu_arm_write_reg(vcpu_id, seL4_VCPUReg_SCTLR, (_SCTLR_M | _SCTLR_C | _SCTLR_I));
+    LOG_VMM("Should be: %x\n", SCTLR_EL1_INIT);
+    microkit_vcpu_arm_write_reg(vcpu_id, seL4_VCPUReg_SCTLR, SCTLR_EL1_INIT);
 
 
     // Setup virtualised sp and spsr    
     LOG_VMM("Initializing spsr[EL1]\n");
-    LOG_VMM("Should be: %x\n", AARCH64_PSTATE_INIT);
-    microkit_vcpu_arm_write_reg(vcpu_id, seL4_VCPUReg_SPSR_EL1, AARCH64_PSTATE_INIT);    
+    LOG_VMM("Should be: %x\n", SPSR_EL1_INIT);
+    microkit_vcpu_arm_write_reg(vcpu_id, seL4_VCPUReg_SPSR_EL1, SPSR_EL1_INIT);    
 
     // ARM64 requires 16 byte alignment for sp, also sp takes 16 bytes up from pointed address, so we do -16 to make stack point to valid 16 bytes
     assert(sp % 16 == 0);
@@ -69,7 +67,7 @@ void setup_tcb_registers(size_t vcpu_id, uint64_t p_entry, uint64_t boot_info_ad
         BASE_VM_TCB_CAP + vcpu_id,
         seL4_False,
         0,
-        sizeof(seL4_UserContext)/sizeof(seL4_Word),
+        sizeof(seL4_UserContext)/sizeof(seL4_Word), // Set all registers
         &context
     );
     assert(err == seL4_NoError);

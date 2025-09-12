@@ -1,4 +1,4 @@
-S5L_OBJS := guest.o elf_solo5.o fault.o vcpu.o 
+S5L_OBJS := guest.o elf.o fault.o vcpu.o 
 S5L_OBJS_BUILD := $(addprefix solo5libvmm/, $(S5L_OBJS))
 
 $(S5L_OBJS_BUILD): |solo5libvmm
