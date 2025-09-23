@@ -1,11 +1,11 @@
+#include <elf.h>
+#include <solo5libvmm/elf.h>
+#include <solo5libvmm/solo5/elf_abi.h>
+#include <solo5libvmm/util.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
-#include <elf.h>
-#include <solo5libvmm/elf.h>
-#include <solo5libvmm/util.h>
-#include <solo5libvmm/solo5/elf_abi.h>
 
 #define EM_TARGET EM_AARCH64
 #define EM_PAGE_SIZE 0x1000
@@ -19,24 +19,14 @@
 static bool ehdr_is_valid(const Elf64_Ehdr* hdr)
 {
     // Validate that this is an ELF64 header we support
-    /*
-     * Note: e_ident[EI_OSABI] and e_ident[EI_ABIVERSION] are deliberately NOT
-     * checked as compilers do not provide a way to override this without
-     * building the entire toolchain from scratch
-     */
-    if (!(hdr->e_ident[EI_MAG0] == ELFMAG0
-            && hdr->e_ident[EI_MAG1] == ELFMAG1
-            && hdr->e_ident[EI_MAG2] == ELFMAG2
-            && hdr->e_ident[EI_MAG3] == ELFMAG3
-            && hdr->e_ident[EI_CLASS] == ELFCLASS64
-            && hdr->e_ident[EI_DATA] == EI_DATA_TARGET
-            && hdr->e_version == EV_CURRENT))
+    if (!(hdr->e_ident[EI_MAG0] == ELFMAG0 && hdr->e_ident[EI_MAG1] == ELFMAG1 && hdr->e_ident[EI_MAG2] == ELFMAG2 && hdr->e_ident[EI_MAG3] == ELFMAG3
+          && hdr->e_ident[EI_CLASS] == ELFCLASS64 && hdr->e_ident[EI_DATA] == EI_DATA_TARGET && hdr->e_version == EV_CURRENT))
         return false;
 
     // Validate ELF64 header internal sizes match what we expect and that at least one program header entry is present
-    if (hdr->e_ehsize != sizeof (Elf64_Ehdr)) return false;
+    if (hdr->e_ehsize != sizeof(Elf64_Ehdr)) return false;
     if (hdr->e_phnum < 1) return false;
-    if (hdr->e_phentsize != sizeof (Elf64_Phdr)) return false;
+    if (hdr->e_phentsize != sizeof(Elf64_Phdr)) return false;
     // Validate that this is an executable for our target architecture
     if (hdr->e_type != ET_EXEC) return false;
     if (hdr->e_machine != EM_TARGET) return false;
@@ -47,22 +37,24 @@ static bool ehdr_is_valid(const Elf64_Ehdr* hdr)
 // Align (addr) down to (align) boundary. Returns 1 if (align) is not a non-zero power of 2
 static int align_down(Elf64_Addr addr, Elf64_Xword align, Elf64_Addr* out_result)
 {
-    if (align > 0 && (align & (align - 1)) == 0) 
+    if (align > 0 && (align & (align - 1)) == 0)
     {
         *out_result = addr & -align;
         return 0;
     }
-    else return 1;
+    else
+        return 1;
 }
 
-// Align (addr) up to (align) boundary. Returns 1 if an overflow would occur or (align) is not a non-zero power of 2, otherwise result in (*out_result) and 0
+// Align (addr) up to (align) boundary. Returns 1 if an overflow would occur or (align) is not a non-zero power of 2, otherwise result in
+// (*out_result) and 0
 static int align_up(Elf64_Addr addr, Elf64_Xword align, Elf64_Addr* out_result)
 {
     Elf64_Addr result;
 
-    if (align > 0 && (align & (align - 1)) == 0) {
-        if (__builtin_add_overflow(addr, (align - 1), &result))
-            return 1;
+    if (align > 0 && (align & (align - 1)) == 0)
+    {
+        if (__builtin_add_overflow(addr, (align - 1), &result)) return 1;
         result = result & -align;
         *out_result = result;
         return 0;
@@ -88,21 +80,21 @@ bool elf_load_note(uint8_t* elf_ptr, size_t elf_size, uint32_t note_type, size_t
     uint8_t* next_phdr_address = elf_ptr + ehdr.e_phoff;
     struct solo5_nhdr nhdr;
 
-    for (Elf64_Half ph_i = 0; ph_i < ehdr.e_phnum; ph_i++) 
+    for (Elf64_Half ph_i = 0; ph_i < ehdr.e_phnum; ph_i++)
     {
         memcpy(&phdr, next_phdr_address, sizeof(Elf64_Phdr));
         next_phdr_address += sizeof(Elf64_Phdr);
-        //TODO: should add check that we stay under elf_size
+        // TODO: should add check that we stay under elf_size
 
         if (phdr.p_type != PT_NOTE) continue;
 
         // p_filesz is less than minimum possible size of a NOTE header
-        if (phdr.p_filesz < sizeof (Elf64_Nhdr)) return false;        
+        if (phdr.p_filesz < sizeof(Elf64_Nhdr)) return false;
 
         // p_filesz is less than minimum possible size of a Solo5 NOTE header
         if (phdr.p_filesz < sizeof(struct solo5_nhdr)) continue;
-        
-        uint8_t* segment_data = elf_ptr + phdr.p_offset; 
+
+        uint8_t* segment_data = elf_ptr + phdr.p_offset;
         memcpy(&nhdr, segment_data, sizeof(struct solo5_nhdr));
         LOG_VMM("Found nhdr\n");
 
@@ -122,7 +114,7 @@ bool elf_load_note(uint8_t* elf_ptr, size_t elf_size, uint32_t note_type, size_t
         note_found = true;
         break;
     }
-    
+
     if (!note_found) return false;
 
     // At this point we have verified that the NOTE at phdr[ph_i] is the Solo5 NOTE with the requested note_type and its file size is sane
@@ -132,12 +124,12 @@ bool elf_load_note(uint8_t* elf_ptr, size_t elf_size, uint32_t note_type, size_t
     assert(note_offset >= sizeof(struct solo5_nhdr));
     note_pad = note_offset - sizeof(struct solo5_nhdr);
     note_size = nhdr.h.n_descsz - note_pad;
-    assert(note_size != 0 && note_size <= nhdr.h.n_descsz);    
+    assert(note_size != 0 && note_size <= nhdr.h.n_descsz);
 
     uint8_t* note_data_ptr = elf_ptr + phdr.p_offset + note_offset;
     size_t read_size = max_note_size < note_size ? max_note_size : note_size;
     memcpy(out_note_buf, note_data_ptr, read_size);
-    *acc_note_size = note_size; 
+    *acc_note_size = note_size;
 
     return true;
 }
@@ -149,8 +141,8 @@ bool elf_load(uint8_t* elf_ptr, size_t elf_size, uint8_t* mem, size_t mem_size, 
 
     Elf64_Phdr phdr;
     Elf64_Ehdr ehdr;
-    Elf64_Addr e_entry;           
-    Elf64_Addr e_end;                   
+    Elf64_Addr e_entry;
+    Elf64_Addr e_end;
 
     // Copy into structs to guarantee struct required alignment
     memcpy(&ehdr, elf_ptr, sizeof(Elf64_Ehdr));
@@ -159,20 +151,20 @@ bool elf_load(uint8_t* elf_ptr, size_t elf_size, uint8_t* mem, size_t mem_size, 
 
     // e_entry must be non-zero and within range of our memory
     if (ehdr.e_entry < p_min_loadaddr || ehdr.e_entry >= mem_size) return false;
-   
+
     e_entry = ehdr.e_entry;
     e_end = 0;
 
     // Load all program segments with the PT_LOAD directive
     uint8_t* next_phdr_address = elf_ptr + ehdr.e_phoff;
     Elf64_Addr plast_vaddr = 0;
-    for (Elf64_Half ph_i = 0; ph_i < ehdr.e_phnum; ph_i++) 
+    for (Elf64_Half ph_i = 0; ph_i < ehdr.e_phnum; ph_i++)
     {
         memcpy(&phdr, next_phdr_address, sizeof(Elf64_Phdr));
         next_phdr_address += sizeof(Elf64_Phdr);
         LOG_VMM("Read phdr %ld\n", ph_i);
 
-        //TODO: should add check that we stay under elf_size
+        // TODO: should add check that we stay under elf_size
 
         Elf64_Addr p_vaddr = phdr.p_vaddr;
         Elf64_Xword p_filesz = phdr.p_filesz;
@@ -187,8 +179,10 @@ bool elf_load(uint8_t* elf_ptr, size_t elf_size, uint8_t* mem, size_t mem_size, 
         if (p_vaddr < p_min_loadaddr) return false;
 
         // ELF specification mandates that program headers are sorted on p_vaddr in ascending order
-        if (p_vaddr < plast_vaddr) return false;
-        else plast_vaddr = p_vaddr;
+        if (p_vaddr < plast_vaddr)
+            return false;
+        else
+            plast_vaddr = p_vaddr;
 
         // Compute p_vaddr_start = p_vaddr, aligned down to requested alignment and verify result is within range
         if (align_down(p_vaddr, p_align, &p_vaddr_start)) return false;
@@ -209,7 +203,7 @@ bool elf_load(uint8_t* elf_ptr, size_t elf_size, uint8_t* mem, size_t mem_size, 
         if (p_vaddr_end > mem_size) return false;
 
         // Keep track of the highest byte of memory occupied by the program
-        if (p_vaddr_end > e_end) 
+        if (p_vaddr_end > e_end)
         {
             e_end = p_vaddr_end;
             // Double check result for host (caller) address space overflow
@@ -220,23 +214,24 @@ bool elf_load(uint8_t* elf_ptr, size_t elf_size, uint8_t* mem, size_t mem_size, 
 
         /*
          * Load the segment (p_vaddr ... p_vaddr + p_filesz) into host memory space at
-         * host_vaddr (where mem is where we mapped guest memory in host space) and ensure 
+         * host_vaddr (where mem is where we mapped guest memory in host space) and ensure
          * any BSS (p_memsz - p_filesz) is initialised to zero
          */
         uint8_t* host_vaddr = mem + p_vaddr;
         uint8_t* segment_data = elf_ptr + phdr.p_offset;
         // Double check result for host (caller) address space overflow
-        assert(host_vaddr >= (mem + p_min_loadaddr));               
+        assert(host_vaddr >= (mem + p_min_loadaddr));
         memcpy(host_vaddr, segment_data, p_filesz);
         memset(host_vaddr + p_filesz, 0, p_memsz - p_filesz);
 
         LOG_VMM("phdr loaded\n");
 
-        // Microkit sets up EL2 page tables based on system description - where we usually mark regions so that the VMM can R/W guest memory 
-        // but not execute it, and as for guest side, we have to give all its memory the same persmissions, so we set its entire memory to RWX
-        // it's not currently possible to change the EL2 memory permissions after Microkit bootup, which means we can't safely propagate the elf
-        // requested page permissions, we can use the guest EL1 page table as a stop gap, propagating elf permissions there, this will prevent any accidental
-        // memory misaccesses, but if we have a truly malicious program, it could overwrite the guests own EL1 pages and then just have normal access to all memory.
+        // Microkit sets up EL2 page tables based on system description - where we usually mark regions so that the VMM can R/W guest memory
+        // but not execute it, and as for guest side, we have to give all its memory the same persmissions, so we set its entire memory to
+        // RWX it's not currently possible to change the EL2 memory permissions after Microkit bootup, which means we can't safely propagate
+        // the elf requested page permissions, we can use the guest EL1 page table as a stop gap, propagating elf permissions there, this
+        // will prevent any accidental memory misaccesses, but if we have a truly malicious program, it could overwrite the guests own EL1
+        // pages and then just have normal access to all memory.
         // TODO: Make Microkit issue to see if we alter EL2 memory permissions in future
 
         /*
@@ -244,7 +239,7 @@ bool elf_load(uint8_t* elf_ptr, size_t elf_size, uint8_t* mem, size_t mem_size, 
          * range (p_vaddr_start .. p_vaddr_end). Before we apply them, also
          * verify that the address range is aligned to the architectural page
          * size.
-         */        
+         */
         /*
         if (p_vaddr_start & (EM_PAGE_SIZE - 1))
             goto out_invalid;
